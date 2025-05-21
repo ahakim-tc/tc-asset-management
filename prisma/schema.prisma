@@ -1,0 +1,242 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Asset {
+  id                Int       @id @default(autoincrement())
+  name              String    @db.VarChar(255)
+  description       String?   @db.Text // "text unassigned" implies optional
+  status            Int // 1. Unassigned, 2. Assigned, 3. Assignment Processing, 4. Active, 5. Return Processing, 6. On Hold
+  asset_type_id     Int
+  asset_sub_type_id Int
+  asset_location_id Int // Corrected from assest_location_id
+  address           String?   @db.Text
+  organization_id   Int
+  ownership_type    Int // 1. Owned, 2. Rent
+  expiration_date   DateTime? @db.Date
+  asset_vendor_id   Int? // Corrected from assest_vendor_id, assumed Int? FK
+  procurement_at    DateTime? @db.Date
+  price             BigInt?
+  warranty          Int? // Number of months
+  employer_id       Int
+  created_by        Int
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  Type               AssetType                @relation(fields: [asset_type_id], references: [id])
+  SubType            AssetSubType             @relation(fields: [asset_sub_type_id], references: [id])
+  Location           AssetLocation            @relation(fields: [asset_location_id], references: [id])
+  Organization       Organization             @relation(fields: [organization_id], references: [id])
+  Vendor             AssetVendor?             @relation(fields: [asset_vendor_id], references: [id])
+  Employer           Employer                 @relation(fields: [employer_id], references: [id])
+  CreatedBy          Employee                 @relation(fields: [created_by], references: [id])
+  AssignmentRequests AssetAssignmentRequest[]
+  ReturnRequests     AssetReturnRequest[]
+
+  @@map("assets")
+}
+
+model AssetAssignmentRequest {
+  id             Int       @id @default(autoincrement())
+  asset_id       Int
+  employee_id    Int
+  priority       Int // 1. Low, 2. Normal, 3. High
+  description    String?   @db.Text
+  event_id       Int?
+  status         Int // 1. Draft (pending assignment), 2. Pending approval, 3. ...
+  effective_date DateTime? @db.Date
+  employer_id    Int
+  created_by     Int
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  Asset          Asset                @relation(fields: [asset_id], references: [id])
+  Employee       Employee             @relation(name: "AssignmentRequests", fields: [employee_id], references: [id])
+  Event          Event?               @relation(fields: [event_id], references: [id])
+  Employer       Employer             @relation(fields: [employer_id], references: [id])
+  CreatedBy      Employee             @relation(name: "AssignmentRequestCreatedBy", fields: [created_by], references: [id])
+  ReturnRequests AssetReturnRequest[] // Relation to asset_return_requests
+
+  @@map("asset_assignment_requests")
+}
+
+model AssetReturnRequest {
+  id                          Int      @id @default(autoincrement())
+  asset_id                    Int
+  asset_assignment_request_id Int
+  employee_id                 Int
+  date                        DateTime @db.Date // "Return date"
+  reason                      String?  @db.VarChar(255) // Assuming varchar(255) as typical default
+  description                 String?  @db.Text
+  event_id                    Int? // FK but can be optional if not always present
+  status                      Int
+  employer_id                 Int
+  created_by                  Int
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  AssignmentRequest AssetAssignmentRequest @relation(fields: [asset_assignment_request_id], references: [id])
+  Asset             Asset                  @relation(fields: [asset_id], references: [id]) // Renamed to avoid conflict
+  Employee          Employee               @relation(name: "ReturnRequests", fields: [employee_id], references: [id])
+  Event             Event?                 @relation(fields: [event_id], references: [id])
+  Employer          Employer               @relation(fields: [employer_id], references: [id])
+  CreatedBy         Employee               @relation(name: "ReturnRequestCreatedBy", fields: [created_by], references: [id])
+
+  @@map("asset_return_requests")
+}
+
+model AssetLocation {
+  id          Int      @id @default(autoincrement())
+  name        String // Corrected from int FK
+  description String?  @db.Text
+  status      Int // 0 - Inactive, 1 - Active
+  employer_id Int
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  Employer Employer @relation(fields: [employer_id], references: [id])
+  Assets   Asset[]
+
+  @@map("asset_locations")
+}
+
+model AssetType {
+  id          Int      @id @default(autoincrement())
+  name        String // Corrected from int FK
+  description String?  @db.Text
+  status      Int // 0 - Inactive, 1 - Active
+  category    Int // 1. Property, 2. Vehicle, 3. Electronics
+  employer_id Int
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  Employer Employer       @relation(fields: [employer_id], references: [id])
+  Assets   Asset[]
+  SubTypes AssetSubType[]
+  // asset_vendors relation handled by Json field in AssetVendor
+
+  @@map("asset_types")
+}
+
+model AssetSubType {
+  id            Int      @id @default(autoincrement())
+  asset_type_id Int
+  name          String // Corrected from int FK
+  description   String?  @db.Text
+  status        Int // 0 - Inactive, 1 - Active
+  employer_id   Int
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  Type     AssetType @relation(fields: [asset_type_id], references: [id])
+  Employer Employer  @relation(fields: [employer_id], references: [id])
+  Assets   Asset[]
+
+  @@map("asset_sub_types")
+}
+
+model AssetVendor {
+  id             Int      @id @default(autoincrement())
+  name           String // Corrected from int FK
+  description    String?  @db.Text
+  status         Int // 0 - Inactive, 1 - Active
+  type           Int // 1. Supplier, 2. Maintainer
+  asset_type_ids Json? // Array of asset type ids
+  phone_no       String?  @db.VarChar(255)
+  email          String?  @db.VarChar(255)
+  address        String?  @db.VarChar(255)
+  employer_id    Int
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  Employer Employer @relation(fields: [employer_id], references: [id])
+  Assets   Asset[]
+
+  @@map("asset_vendors")
+}
+
+model Event {
+  id             Int       @id @default(autoincrement()) // SQL: id int unsigned NO PRI auto_increment
+  event_type_id  Int? // SQL: event_type_id int YES
+  event_reason   String?   @db.VarChar(255) // SQL: event_reason varchar(255) YES
+  action_type_id Int       @default(1) // SQL: action_type_id int NO DEFAULT 1
+  employer_id    Int? // SQL: employer_id int unsigned YES
+  employee_id    Int? // SQL: employee_id int unsigned YES MUL
+  workflow_id    Int? // SQL: workflow_id int unsigned YES MUL
+  status         Int?      @default(0) // SQL: status int YES MUL DEFAULT 0
+  approved_at    DateTime? @db.Date // SQL: approved_at date YES
+  approved_by    Int? // SQL: approved_by int YES
+  admin_remark   String?   @db.VarChar(255) // SQL: admin_remark varchar(255) YES
+  receivers      Json? // SQL: receivers json YES
+  created_by     Int? // SQL: created_by int unsigned YES
+  created_at     DateTime  @default(now()) // SQL: created_at timestamp NO DEFAULT CURRENT_TIMESTAMP
+  updated_at     DateTime  @updatedAt // SQL: updated_at timestamp NO DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  owner_type     String?   @db.VarChar(255) // SQL: owner_type varchar(255) YES
+  owner_id       BigInt? // SQL: owner_id bigint unsigned YES
+
+  AssetAssignmentRequests AssetAssignmentRequest[]
+  AssetReturnRequests     AssetReturnRequest[]
+
+  @@index([employee_id])
+  @@index([workflow_id])
+  @@index([status])
+  @@map("events")
+}
+
+model Employee {
+  id             Int     @id @default(autoincrement())
+  user_id        Int?
+  employer_id    Int     @default(0)
+  firstname      String? @db.VarChar(255)
+  lastname       String? @db.VarChar(255)
+  preferred_name String? @db.VarChar(255)
+  mid_name       String? @db.VarChar(255)
+  formatted_name String? @db.VarChar(255)
+
+  AssignmentRequests         AssetAssignmentRequest[] @relation(name: "AssignmentRequests")
+  ReturnRequests             AssetReturnRequest[]     @relation(name: "ReturnRequests")
+  AssignmentRequestCreatedBy AssetAssignmentRequest[] @relation(name: "AssignmentRequestCreatedBy")
+  ReturnRequestCreatedBy     AssetReturnRequest[]     @relation(name: "ReturnRequestCreatedBy")
+  Asset                      Asset[]
+
+  @@map("employees")
+}
+
+model Employer {
+  id              Int  @id @default(autoincrement()) // SQL: id int unsigned NO PRI auto_increment
+  user_id         Int? // SQL: user_id int YES
+  employer_id_ref Int  @default(0) @map("employer_id") // SQL: employer_id int NO MUL DEFAULT 0. Mapped to avoid naming clash.
+
+  Assets             Asset[]
+  AssignmentRequests AssetAssignmentRequest[]
+  ReturnRequests     AssetReturnRequest[]
+  AssetLocations     AssetLocation[]
+  AssetTypes         AssetType[]
+  AssetSubTypes      AssetSubType[]
+  AssetVendors       AssetVendor[]
+
+  @@map("employers")
+}
+
+model Organization {
+  id                Int     @id @default(autoincrement()) // SQL: id int unsigned NO PRI auto_increment
+  employer_id       Int? // SQL: employer_id int YES
+  name              String? @db.VarChar(255) // SQL: name varchar(255) YES
+  short_description String? @db.VarChar(255) // SQL: short_description varchar(255) YES
+
+  assets Asset[]
+
+  @@map("organizations")
+}
